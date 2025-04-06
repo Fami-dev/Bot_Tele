@@ -2,20 +2,27 @@ import telebot
 import os
 import datetime
 import requests
+import re
+from telebot import types
 
 BOT_TOKEN = '8151707833:AAHJZWErtOkPCwbbwgZ3oyf0-NtZ17nCLIM'
-ALLOWED_USERS = [1374294212]  # ganti dengan user_id yang diizinkan pakai bot
-
+ALLOWED_USERS = [1374294212]  # Ganti dengan user_id kamu
 bot = telebot.TeleBot(BOT_TOKEN)
 
-# Fungsi pembersih domain
+user_state = {}
+file_store = {}
+
+# Fungsi untuk escape karakter MarkdownV2
+def escape_md(text):
+    escape_chars = r'\_*[]()~`>#+-=|{}.!'
+    return re.sub(f'([{re.escape(escape_chars)}])', r'\\\1', text)
+
 def clean_domain(line):
     for prefix in ["https://www.", "http://www.", "https://", "http://", "www."]:
         if line.startswith(prefix):
             line = line.replace(prefix, "", 1)
     return line.strip()
 
-# Fungsi untuk memproses file dan menghasilkan output
 def process_file(input_path, keyword, blacklist_path):
     with open(input_path, 'r') as file:
         lines = file.readlines()
@@ -40,10 +47,8 @@ def process_file(input_path, keyword, blacklist_path):
             domain_dict[domain_full] = []
         domain_dict[domain_full].append((username, password))
 
-    # Sort hasilnya
     sorted_domains = sorted(domain_dict.items())
 
-    # Buat output string
     now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
     header = f"""🔎 Pencarian Selesai
 
@@ -55,37 +60,67 @@ def process_file(input_path, keyword, blacklist_path):
 🤖 @cloudfami_bot
 """
 
-    result = [header]
+    result = [escape_md(header)]
     for domain, creds in sorted_domains:
-        result.append(f"[ {domain} ] Status : ✅ ❌\n")
+        result.append(escape_md(f"[ {domain} ] Status : ✅ ❌\n"))
         for user, pwd in creds:
-            result.append(f"Username: ```{user}```\nPassword: ```{pwd}```\n")
+            result.append(f"Username: ```{escape_md(user)}```\nPassword: ```{escape_md(pwd)}```\n")
         result.append("")
 
-    # Simpan ke file
     output_filename = f"Output_{os.path.basename(input_path)}"
     with open(output_filename, 'w') as f:
         f.write('\n'.join(result))
-    
+
     return output_filename, '\n'.join(result)
 
-# ========== HANDLER BOT ==========
-
 @bot.message_handler(commands=['start'])
-def send_welcome(message):
-    bot.reply_to(message, "Halo! Kirim perintah /run lalu upload file akun (txt) dan masukkan kata kunci pencarian.")
-
-@bot.message_handler(commands=['run'])
-def run_command(message):
+def start(message):
     if message.from_user.id not in ALLOWED_USERS:
         return bot.reply_to(message, "Kamu tidak punya akses.")
-    
-    msg = bot.reply_to(message, "Silakan kirim file txt akun kamu.")
-    bot.register_next_step_handler(msg, handle_file)
 
-def handle_file(message):
-    if not message.document:
-        return bot.reply_to(message, "Harap kirim file .txt")
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    markup.add(types.KeyboardButton("📁 Upload File"), types.KeyboardButton("🏷️ Masukkan Kata Kunci"))
+    markup.add(types.KeyboardButton("▶️ Jalankan"))
+    bot.send_message(message.chat.id, "Selamat datang! Silakan upload file dan masukkan kata kunci.", reply_markup=markup)
+
+@bot.message_handler(func=lambda message: message.text == "📁 Upload File")
+def upload_file_prompt(message):
+    bot.send_message(message.chat.id, "Silakan kirim file .txt kamu.")
+    user_state[message.chat.id] = 'awaiting_file'
+
+@bot.message_handler(func=lambda message: message.text == "🏷️ Masukkan Kata Kunci")
+def keyword_prompt(message):
+    bot.send_message(message.chat.id, "Masukkan kata kunci pencarian:")
+    user_state[message.chat.id] = 'awaiting_keyword'
+
+@bot.message_handler(func=lambda message: message.text == "▶️ Jalankan")
+def run_script(message):
+    user_id = message.chat.id
+    if user_id not in file_store or 'file' not in file_store[user_id] or 'keyword' not in file_store[user_id]:
+        return bot.send_message(user_id, "Pastikan kamu sudah upload file dan memasukkan kata kunci.")
+
+    input_file = file_store[user_id]['file']
+    keyword = file_store[user_id]['keyword']
+    blacklist_file = 'blacklist.txt'
+
+    if not os.path.exists(blacklist_file):
+        return bot.send_message(user_id, "File blacklist.txt tidak ditemukan.")
+
+    output_file, result_text = process_file(input_file, keyword, blacklist_file)
+    try:
+        with open(output_file, 'rb') as doc:
+            bot.send_document(user_id, doc)
+        if len(result_text) > 4000:
+            bot.send_message(user_id, "Hasil terlalu panjang, silakan lihat di file.")
+        else:
+            bot.send_message(user_id, result_text, parse_mode="MarkdownV2")
+    except Exception as e:
+        bot.send_message(user_id, f"Terjadi kesalahan: {e}")
+
+@bot.message_handler(content_types=['document'])
+def handle_file_upload(message):
+    if user_state.get(message.chat.id) != 'awaiting_file':
+        return
 
     file_info = bot.get_file(message.document.file_id)
     downloaded = bot.download_file(file_info.file_path)
@@ -93,28 +128,17 @@ def handle_file(message):
     with open(file_name, 'wb') as new_file:
         new_file.write(downloaded)
 
-    msg = bot.reply_to(message, "File diterima. Sekarang, masukkan kata kunci pencarian (misal: smm)")
-    bot.register_next_step_handler(msg, handle_keyword, file_name)
+    file_store[message.chat.id] = file_store.get(message.chat.id, {})
+    file_store[message.chat.id]['file'] = file_name
+    bot.send_message(message.chat.id, f"File {file_name} berhasil diupload!")
+    user_state[message.chat.id] = None
 
-def handle_keyword(message, file_name):
-    keyword = message.text.strip()
-    blacklist_file = 'blacklist.txt'
-    if not os.path.exists(blacklist_file):
-        return bot.reply_to(message, "File blacklist.txt tidak ditemukan.")
-
-    output_file, result_text = process_file(file_name, keyword, blacklist_file)
-    try:
-        with open(output_file, 'rb') as doc:
-            bot.send_document(message.chat.id, doc)
-        # Potong text kalau terlalu panjang untuk Telegram
-        if len(result_text) > 4000:
-            bot.send_message(message.chat.id, "Hasil terlalu panjang, silakan lihat di file.")
-        else:
-            bot.send_message(message.chat.id, result_text, parse_mode="Markdown")
-    except Exception as e:
-        bot.send_message(message.chat.id, f"Terjadi kesalahan saat mengirim file atau hasil:\n{e}")
-
-# ========== RUN ==========
+@bot.message_handler(func=lambda message: user_state.get(message.chat.id) == 'awaiting_keyword')
+def handle_keyword_input(message):
+    file_store[message.chat.id] = file_store.get(message.chat.id, {})
+    file_store[message.chat.id]['keyword'] = message.text.strip()
+    bot.send_message(message.chat.id, f"Kata kunci disimpan: {message.text}")
+    user_state[message.chat.id] = None
 
 print("Bot aktif...")
 bot.infinity_polling()
