@@ -1,80 +1,71 @@
+# bot_smm.py
+import telebot
 import time
+import os
 
-# Membaca nama file input dan file blacklist
-input_file = 'p.txt'
-blacklist_file = 'blacklist.txt'
+BOT_TOKEN = '8151707833:AAHJZWErtOkPCwbbwgZ3oyf0-NtZ17nCLIM'
+bot = telebot.TeleBot(BOT_TOKEN)
 
-def print_progress(step, total_steps, message):
-    progress = (step / total_steps) * 100
-    print(f"[{progress:.2f}%] {message}")
+@bot.message_handler(commands=['start'])
+def start(message):
+    bot.reply_to(message, "Halo! Kirim perintah /run untuk menjalankan proses.")
 
-total_steps = 6  # Jumlah langkah yang dilakukan
+@bot.message_handler(commands=['run'])
+def run_script(message):
+    try:
+        output_file = run_smm_script()
+        with open(output_file, 'rb') as doc:
+            bot.send_document(message.chat.id, doc)
+    except Exception as e:
+        bot.reply_to(message, f"Terjadi kesalahan: {str(e)}")
 
-# Langkah 1: Membaca data dari file input
-print_progress(1, total_steps, "Membaca file input...")
-with open(input_file, 'r') as file:
-    lines = file.readlines()
-time.sleep(0.5)
+def run_smm_script():
+    input_file = '@trxsecurity_org 56384995.txt'
+    blacklist_file = 'blacklist.txt'
 
-# Langkah 2: Membaca data dari file blacklist
-print_progress(2, total_steps, "Membaca file blacklist...")
-with open(blacklist_file, 'r') as file:
-    blacklist = [line.strip() for line in file.readlines()]
-time.sleep(0.5)
+    with open(input_file, 'r') as file:
+        lines = file.readlines()
 
-# Langkah 3: Menghapus prefix (https://, www., http://, dll.)
-print_progress(3, total_steps, "Membersihkan prefix dari URL...")
-cleaned_lines = []
-for line in lines:
-    line = line.strip()
-    for prefix in ["https://", "http://", "www."]:
-        if line.startswith(prefix):
-            line = line.replace(prefix, "", 1)
-    cleaned_lines.append(line)
-time.sleep(0.5)
+    with open(blacklist_file, 'r') as file:
+        blacklist = [line.strip() for line in file.readlines()]
 
-# Langkah 4: Mengubah domain menjadi hanya nama utama dan validasi format
-print_progress(4, total_steps, "Memproses domain dan validasi format...")
-domain_dict = {}
-for line in cleaned_lines:
-    parts = line.split(':')
-    if len(parts) < 3:  # Validasi format (minimal ada domain, username, password)
-        continue
-    domain_parts = parts[0].split('/')
-    domain = domain_parts[0]  # Mengambil domain utama saja
-    username = parts[1]
-    password = parts[2]
-    
-    # Mengecek apakah domain masuk dalam blacklist
-    if domain in blacklist:
-        continue  # Lewati domain yang ada di blacklist
-    
-    # Menggabungkan data berdasarkan domain
-    if domain not in domain_dict:
-        domain_dict[domain] = []
-    domain_dict[domain].append((username, password))
-time.sleep(0.5)
+    cleaned_lines = []
+    for line in lines:
+        line = line.strip()
+        for prefix in ["https://", "http://", "www."]:
+            if line.startswith(prefix):
+                line = line.replace(prefix, "", 1)
+        cleaned_lines.append(line)
 
-# Langkah 5: Menyaring hanya domain yang mengandung "smm"
-print_progress(5, total_steps, "Menyaring domain dengan kata kunci 'smm'...")
-filtered_domains = {domain: creds for domain, creds in domain_dict.items() if "smm" in domain}
-time.sleep(0.5)
+    domain_dict = {}
+    for line in cleaned_lines:
+        parts = line.split(':')
+        if len(parts) < 3:
+            continue
+        domain = parts[0].split('/')[0]
+        username = parts[1]
+        password = parts[2]
+        if domain in blacklist:
+            continue
+        if domain not in domain_dict:
+            domain_dict[domain] = []
+        domain_dict[domain].append((username, password))
 
-# Langkah 6: Membuat layout berdasarkan data yang difilter dan diurutkan
-print_progress(6, total_steps, "Membuat output dan menyimpan hasil...")
-sorted_domains = sorted(filtered_domains.keys())  # Mengurutkan domain berdasarkan abjad
-output = []
-for domain in sorted_domains:
-    output.append(f"[ {domain} ] Status : ✅ ❌\n")
-    for username, password in filtered_domains[domain]:
-        output.append(f"Username: {username}\nPassword: {password}\n")
-    output.append("")  # Menambahkan baris kosong untuk pemisah
+    filtered_domains = {d: c for d, c in domain_dict.items() if "smm" in d}
+    sorted_domains = sorted(filtered_domains.keys())
 
-# Mengubah nama file output secara dinamis
-output_file = f"Output_{input_file.split('.')[0]}.txt"
+    output = []
+    for domain in sorted_domains:
+        output.append(f"[ {domain} ] Status : ✅ ❌\n")
+        for username, password in filtered_domains[domain]:
+            output.append(f"Username: {username}\nPassword: {password}\n")
+        output.append("")
 
-# Menyimpan hasil ke file output
-with open(output_file, 'w') as file:
-    file.writelines('\n'.join(output))
+    output_file = f"Output_{input_file.split('.')[0]}.txt"
+    with open(output_file, 'w') as f:
+        f.writelines('\n'.join(output))
+    return output_file
 
-print(f"[100.00%] Proses selesai. Data telah disimpan di '{output_file}'.")
+# Jalankan polling agar bot aktif terus
+print("Bot is running...")
+bot.infinity_polling()

@@ -1,7 +1,7 @@
 import time
 
 # Membaca nama file input dan file blacklist
-input_file = '@trxsecurity_org 56384995.txt'
+input_file = 'p.txt'
 blacklist_file = 'blacklist.txt'
 
 def print_progress(step, total_steps, message):
