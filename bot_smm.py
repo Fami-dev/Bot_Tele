@@ -1,6 +1,7 @@
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, InputFile
 import os
+from datetime import datetime
 
 BOT_TOKEN = '8151707833:AAHJZWErtOkPCwbbwgZ3oyf0-NtZ17nCLIM'  # Ganti dengan token bot kamu
 bot = telebot.TeleBot(BOT_TOKEN)
@@ -121,8 +122,19 @@ def process_file(input_file, keyword):
         output.append("")
 
     output_file = f"Output_{os.path.basename(input_file)}"
-    with open(output_file, 'w') as f:
-        f.writelines('\n'.join(output))
+    header = f"""🔎 Pencarian Selesai
+
+👤 Username: {os.getlogin() if hasattr(os, 'getlogin') else 'User Telegram'}
+📅 Tanggal: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+📁 File: {os.path.basename(input_file)}
+🏷️ Kata Kunci: {keyword}
+
+🤖 @cloudfami_bot
+
+"""
+
+    with open(output_file, 'w', encoding='utf-8') as f:
+        f.write(header + '\n'.join(output))
     return output_file
 
 print("Bot is running...")

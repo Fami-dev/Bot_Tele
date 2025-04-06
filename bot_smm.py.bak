@@ -2,10 +2,10 @@ import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, InputFile
 import os
 
-BOT_TOKEN = 'YOUR_BOT_TOKEN'  # Ganti dengan token bot kamu
+BOT_TOKEN = '8151707833:AAHJZWErtOkPCwbbwgZ3oyf0-NtZ17nCLIM'  # Ganti dengan token bot kamu
 bot = telebot.TeleBot(BOT_TOKEN)
 
-PASSWORD = "admin123"  # Ganti dengan password login
+PASSWORD = "Fami"  # Ganti dengan password login
 
 authorized_users = set()
 user_keywords = {}
