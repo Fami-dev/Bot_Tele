@@ -121,6 +121,8 @@ def process_file(input_file, keyword):
             output.append(f"Username: {username}\nPassword: {password}\n")
         output.append("")
 
+    from datetime import datetime
+
     output_file = f"Output_{os.path.basename(input_file)}"
     header = f"""🔎 Pencarian Selesai
 
