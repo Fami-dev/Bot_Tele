@@ -1,1 +1,1 @@
-python bot_smm.py
+start: python bot_smm.py
