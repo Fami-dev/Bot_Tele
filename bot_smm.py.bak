@@ -1,18 +1,16 @@
 import telebot
-from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, InputFile
+from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 import os
 from datetime import datetime
 
-BOT_TOKEN = '8151707833:AAHJZWErtOkPCwbbwgZ3oyf0-NtZ17nCLIM'  # Ganti dengan token bot kamu
+BOT_TOKEN = '8151707833:AAHJZWErtOkPCwbbwgZ3oyf0-NtZ17nCLIM'  # Ganti dengan token asli bot kamu
 bot = telebot.TeleBot(BOT_TOKEN)
 
-PASSWORD = "Fami"  # Ganti dengan password login
-
+PASSWORD = "admin123"
 authorized_users = set()
 user_keywords = {}
 user_files = {}
 
-# Tombol utama
 def main_menu():
     keyboard = InlineKeyboardMarkup()
     keyboard.add(
@@ -22,13 +20,11 @@ def main_menu():
     )
     return keyboard
 
-# Start Command
 @bot.message_handler(commands=['start'])
 def start(message):
     bot.send_message(message.chat.id, "Selamat datang! Silakan login.\nMasukkan password:")
     bot.register_next_step_handler(message, login)
 
-# Login handler
 def login(message):
     if message.text == PASSWORD:
         authorized_users.add(message.from_user.id)
@@ -36,11 +32,9 @@ def login(message):
     else:
         bot.send_message(message.chat.id, "Password salah. Coba lagi dengan /start.")
 
-# Cek apakah user login
 def is_logged_in(user_id):
     return user_id in authorized_users
 
-# Callback tombol
 @bot.callback_query_handler(func=lambda call: True)
 def callback_query(call):
     if not is_logged_in(call.from_user.id):
@@ -55,16 +49,18 @@ def callback_query(call):
         user_id = call.from_user.id
         if user_id not in user_files:
             return bot.send_message(call.message.chat.id, "Anda belum mengupload file.")
-        result_file = process_file(user_files[user_id], user_keywords.get(user_id, 'smm'))
-        with open(result_file, 'rb') as f:
-            bot.send_document(call.message.chat.id, f)
+        keyword = user_keywords.get(user_id, 'smm')
+        result_text = process_file(user_files[user_id], keyword, call.from_user)
+        if len(result_text) > 4000:
+            for i in range(0, len(result_text), 4000):
+                bot.send_message(call.message.chat.id, result_text[i:i+4000], parse_mode='Markdown')
+        else:
+            bot.send_message(call.message.chat.id, result_text, parse_mode='Markdown')
 
-# Simpan kata kunci
 def save_keyword(message):
     user_keywords[message.from_user.id] = message.text.strip().lower()
     bot.send_message(message.chat.id, f"Kata kunci diatur ke: {message.text}", reply_markup=main_menu())
 
-# Handler file upload
 @bot.message_handler(content_types=['document'])
 def handle_file(message):
     if not is_logged_in(message.from_user.id):
@@ -80,8 +76,7 @@ def handle_file(message):
     user_files[message.from_user.id] = file_path
     bot.reply_to(message, "File berhasil diupload.", reply_markup=main_menu())
 
-# Fungsi proses file
-def process_file(input_file, keyword):
+def process_file(input_file, keyword, user):
     blacklist_file = 'blacklist.txt'
     with open(blacklist_file, 'r') as file:
         blacklist = [line.strip().lower() for line in file.readlines()]
@@ -114,30 +109,25 @@ def process_file(input_file, keyword):
     filtered = {d: c for d, c in domain_dict.items() if keyword.lower() in d}
     sorted_domains = sorted(filtered.keys())
 
-    output = []
-    for domain in sorted_domains:
-        output.append(f"[ {domain} ] Status : ✅ ❌\n")
-        for username, password in filtered[domain]:
-            output.append(f"Username: {username}\nPassword: {password}\n")
-        output.append("")
+    header = f"""🔎 *Pencarian Selesai*
 
-    from datetime import datetime
-
-    output_file = f"Output_{os.path.basename(input_file)}"
-    header = f"""🔎 Pencarian Selesai
-
-👤 Username: {os.getlogin() if hasattr(os, 'getlogin') else 'User Telegram'}
-📅 Tanggal: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-📁 File: {os.path.basename(input_file)}
-🏷️ Kata Kunci: {keyword}
+👤 *Username:* @{user.username if user.username else user.first_name}
+📅 *Tanggal:* {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+📁 *File:* {os.path.basename(input_file)}
+🏷️ *Kata Kunci:* `{keyword}`
 
 🤖 @cloudfami_bot
 
 """
 
-    with open(output_file, 'w', encoding='utf-8') as f:
-        f.write(header + '\n'.join(output))
-    return output_file
+    content = ""
+    for domain in sorted_domains:
+        content += f"*[ {domain} ]* Status : ✅ ❌\n"
+        for username, password in filtered[domain]:
+            content += f"Username: ```{username}```\nPassword: ```{password}```\n\n"
+        content += "\n"
+
+    return header + content
 
 print("Bot is running...")
 bot.infinity_polling()
