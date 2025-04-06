@@ -2,116 +2,119 @@ import telebot
 import os
 import datetime
 import requests
-from telebot import types
 
 BOT_TOKEN = '8151707833:AAHJZWErtOkPCwbbwgZ3oyf0-NtZ17nCLIM'
+ALLOWED_USERS = [1374294212]  # ganti dengan user_id yang diizinkan pakai bot
+
 bot = telebot.TeleBot(BOT_TOKEN)
 
-# Fungsi untuk escape karakter spesial MarkdownV2
-def escape_markdown(text):
-    escape_chars = r'\_*[]()~`>#+-=|{}.!'
-    return ''.join(['\\' + c if c in escape_chars else c for c in text])
+# Fungsi pembersih domain
+def clean_domain(line):
+    for prefix in ["https://www.", "http://www.", "https://", "http://", "www."]:
+        if line.startswith(prefix):
+            line = line.replace(prefix, "", 1)
+    return line.strip()
 
-# Fungsi utama untuk memproses file input
-
-def process_file(input_file, blacklist_file, keyword):
-    with open(input_file, 'r') as file:
+# Fungsi untuk memproses file dan menghasilkan output
+def process_file(input_path, keyword, blacklist_path):
+    with open(input_path, 'r') as file:
         lines = file.readlines()
 
-    with open(blacklist_file, 'r') as file:
-        blacklist = [line.strip() for line in file.readlines()]
-
-    cleaned_lines = []
-    for line in lines:
-        line = line.strip()
-        for prefix in ["https://www.", "http://www.", "https://", "http://", "www."]:
-            if line.startswith(prefix):
-                line = line.replace(prefix, "", 1)
-        cleaned_lines.append(line)
+    with open(blacklist_path, 'r') as file:
+        blacklist = [b.strip() for b in file.readlines()]
 
     domain_dict = {}
-    for line in cleaned_lines:
+    for line in lines:
+        line = clean_domain(line)
         parts = line.split(':')
         if len(parts) < 3:
             continue
-        domain = parts[0].split('/')[0]
+        domain_full = parts[0].split('/')[0]
+        if domain_full in blacklist:
+            continue
+        if keyword.lower() not in domain_full.lower():
+            continue
         username = parts[1]
         password = parts[2]
-        if domain in blacklist:
-            continue
-        if keyword.lower() not in domain.lower():
-            continue
-        if domain not in domain_dict:
-            domain_dict[domain] = []
-        domain_dict[domain].append((username, password))
+        if domain_full not in domain_dict:
+            domain_dict[domain_full] = []
+        domain_dict[domain_full].append((username, password))
 
-    sorted_domains = sorted(domain_dict.keys())
-    content = ""
-    for domain in sorted_domains:
-        content += f"[ {escape_markdown(domain)} ] Status : \u2705 \u274C\n\n"
-        for username, password in domain_dict[domain]:
-            escaped_user = escape_markdown(username)
-            escaped_pass = escape_markdown(password)
-            content += f"Username: ```{escaped_user}```\nPassword: ```{escaped_pass}```\n\n"
-        content += "\n"
+    # Sort hasilnya
+    sorted_domains = sorted(domain_dict.items())
 
-    # Header teks tambahan
-    date_str = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    content = (
-        f"\ud83d\udd0e Pencarian Selesai\n\n"
-        f"\ud83d\udc64 Username: ```@cloudfami_user```\n"
-        f"\ud83d\udcc5 Tanggal: ```{escape_markdown(date_str)}```\n"
-        f"\ud83d\udcc1 File: ```{escape_markdown(os.path.basename(input_file))}```\n"
-        f"\ud83c\udff7\ufe0f Kata Kunci: ```{escape_markdown(keyword)}```\n\n"
-        f"\ud83e\udd16 @cloudfami_bot\n\n"
-    ) + content
+    # Buat output string
+    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+    header = f"""🔎 Pencarian Selesai
 
-    output_file = f"Output_{os.path.splitext(os.path.basename(input_file))[0]}.txt"
-    with open(output_file, 'w') as f:
-        f.write(content)
-    return output_file, content
+👤 Username: 
+📅 Tanggal: {now}
+📁 File: {os.path.basename(input_path)}
+🏷️ Kata Kunci: {keyword}
 
-# Handler /start
+🤖 @cloudfami_bot
+"""
+
+    result = [header]
+    for domain, creds in sorted_domains:
+        result.append(f"[ {domain} ] Status : ✅ ❌\n")
+        for user, pwd in creds:
+            result.append(f"Username: ```{user}```\nPassword: ```{pwd}```\n")
+        result.append("")
+
+    # Simpan ke file
+    output_filename = f"Output_{os.path.basename(input_path)}"
+    with open(output_filename, 'w') as f:
+        f.write('\n'.join(result))
+    
+    return output_filename, '\n'.join(result)
+
+# ========== HANDLER BOT ==========
+
 @bot.message_handler(commands=['start'])
-def start(message):
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.add('/run')
-    bot.send_message(message.chat.id, "Halo! Kirim /run untuk memulai proses.", reply_markup=markup)
+def send_welcome(message):
+    bot.reply_to(message, "Halo! Kirim perintah /run lalu upload file akun (txt) dan masukkan kata kunci pencarian.")
 
-# Handler /run
 @bot.message_handler(commands=['run'])
-def ask_keyword(message):
-    msg = bot.send_message(message.chat.id, "Masukkan kata kunci pencarian:")
-    bot.register_next_step_handler(msg, ask_file_link)
+def run_command(message):
+    if message.from_user.id not in ALLOWED_USERS:
+        return bot.reply_to(message, "Kamu tidak punya akses.")
+    
+    msg = bot.reply_to(message, "Silakan kirim file txt akun kamu.")
+    bot.register_next_step_handler(msg, handle_file)
 
-def ask_file_link(message):
-    keyword = message.text
-    msg = bot.send_message(message.chat.id, "Kirim link file (harus file .txt dari Telegram):")
-    bot.register_next_step_handler(msg, process_all, keyword)
+def handle_file(message):
+    if not message.document:
+        return bot.reply_to(message, "Harap kirim file .txt")
 
-def process_all(message, keyword):
-    if not message.text.startswith("https://"):
-        bot.send_message(message.chat.id, "Link tidak valid.")
-        return
+    file_info = bot.get_file(message.document.file_id)
+    downloaded = bot.download_file(file_info.file_path)
+    file_name = message.document.file_name
+    with open(file_name, 'wb') as new_file:
+        new_file.write(downloaded)
 
-    file_url = message.text
+    msg = bot.reply_to(message, "File diterima. Sekarang, masukkan kata kunci pencarian (misal: smm)")
+    bot.register_next_step_handler(msg, handle_keyword, file_name)
+
+def handle_keyword(message, file_name):
+    keyword = message.text.strip()
+    blacklist_file = 'blacklist.txt'
+    if not os.path.exists(blacklist_file):
+        return bot.reply_to(message, "File blacklist.txt tidak ditemukan.")
+
+    output_file, result_text = process_file(file_name, keyword, blacklist_file)
     try:
-        file_response = requests.get(file_url)
-        file_response.raise_for_status()
-        input_file = "input_temp.txt"
-        with open(input_file, 'wb') as f:
-            f.write(file_response.content)
-
-        blacklist_file = 'blacklist.txt'
-        output_file, result_text = process_file(input_file, blacklist_file, keyword)
-
         with open(output_file, 'rb') as doc:
             bot.send_document(message.chat.id, doc)
-
-        bot.send_message(message.chat.id, result_text, parse_mode='MarkdownV2')
-
+        # Potong text kalau terlalu panjang untuk Telegram
+        if len(result_text) > 4000:
+            bot.send_message(message.chat.id, "Hasil terlalu panjang, silakan lihat di file.")
+        else:
+            bot.send_message(message.chat.id, result_text, parse_mode="Markdown")
     except Exception as e:
-        bot.send_message(message.chat.id, f"Terjadi kesalahan: {str(e)}")
+        bot.send_message(message.chat.id, f"Terjadi kesalahan saat mengirim file atau hasil:\n{e}")
 
-print("Bot is running...")
+# ========== RUN ==========
+
+print("Bot aktif...")
 bot.infinity_polling()
