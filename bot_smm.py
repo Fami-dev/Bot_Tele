@@ -20,7 +20,7 @@ def run_script(message):
         bot.reply_to(message, f"Terjadi kesalahan: {str(e)}")
 
 def run_smm_script():
-    input_file = '@trxsecurity_org 56384995.txt'
+    input_file = 'p.txt'
     blacklist_file = 'blacklist.txt'
 
     with open(input_file, 'r') as file:
